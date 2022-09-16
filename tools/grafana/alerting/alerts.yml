@@ -126,8 +126,8 @@ groups:
                 type: __expr__
                 uid: __expr__
               expression: '(
-                ${mean_redis_queue_size} >
-                ($mean_event_insertion_rate\ * 120))'
+                $mean_redis_queue_size >
+                ($mean_event_insertion_rate * 120))'
               hide: false
               intervalMs: 1000
               maxDataPoints: 43200
