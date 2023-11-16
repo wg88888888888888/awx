@@ -63,12 +63,31 @@ class HasPolicyEditsMixin(HasEditsMixin):
 
 
 class InstanceLink(BaseModel):
+    source = models.ForeignKey('Instance', on_delete=models.CASCADE, related_name='+')
+    target = models.ForeignKey('Instance', on_delete=models.CASCADE, related_name='reverse_peers')
+
+    class States(models.TextChoices):
+        ADDING = 'adding', _('Adding')
+        ESTABLISHED = 'established', _('Established')
+        REMOVING = 'removing', _('Removing')
+
+    link_state = models.CharField(
+        choices=States.choices, default=States.ADDING, max_length=16, help_text=_("Indicates the current life cycle stage of this peer link.")
+    )
+
+    class Meta:
+        unique_together = ('source', 'target')
+        ordering = ("id",)
+        constraints = [models.CheckConstraint(check=~models.Q(source=models.F('target')), name='source_and_target_can_not_be_equal')]
+
+
+class InstanceLinkReceptorAddress(BaseModel):
     class Meta:
         ordering = ("id",)
         constraints = [models.UniqueConstraint(fields=['source', 'target'], name='source_target_unique_together')]
 
-    source = models.ForeignKey('Instance', on_delete=models.CASCADE, help_text=_("The source instance of this peer link."))
-    target = models.ForeignKey('ReceptorAddress', on_delete=models.CASCADE, help_text=_("The target receptor address of this peer link."))
+    source = models.ForeignKey('Instance', on_delete=models.CASCADE)
+    target = models.ForeignKey('ReceptorAddress', on_delete=models.CASCADE)
 
     class States(models.TextChoices):
         ADDING = 'adding', _('Adding')
@@ -185,7 +204,7 @@ class Instance(HasPolicyEditsMixin, BaseModel):
         choices=States.choices, default=States.READY, max_length=16, help_text=_("Indicates the current life cycle stage of this instance.")
     )
 
-    peers = models.ManyToManyField('ReceptorAddress', through=InstanceLink, through_fields=('source', 'target'), related_name='peers_from')
+    peers = models.ManyToManyField('ReceptorAddress', through=InstanceLinkReceptorAddress, through_fields=('source', 'target'), related_name='peers_from')
     peers_from_control_nodes = models.BooleanField(default=False, help_text=_("If True, control plane cluster nodes should automatically peer to it."))
 
     POLICY_FIELDS = frozenset(('managed_by_policy', 'hostname', 'capacity_adjustment'))

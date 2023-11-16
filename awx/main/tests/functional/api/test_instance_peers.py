@@ -376,3 +376,81 @@ class TestPeers:
                         peers.append(value['address'])
 
             assert set(expected_peers) == set(peers)
+
+
+@pytest.mark.django_db
+class TestReceptorAddressMigration:
+    def test_receptor_address_migration_happy_path(self, migrator):
+        old_state = migrator.apply_initial_migration(('main', '0187_hop_nodes'))
+        Instance = old_state.apps.get_model('main', 'Instance')
+        """
+        control > hop1 > hop2 < execution
+        """
+        control = Instance.objects.create(hostname='control', node_type='control', listener_port=None)
+        hop1 = Instance.objects.create(hostname='hop1', node_type='hop', listener_port=6787, peers_from_control_nodes=True)
+        hop2 = Instance.objects.create(hostname='hop2', node_type='hop', listener_port=6788, peers_from_control_nodes=False)
+        execution = Instance.objects.create(hostname='execution', node_type='execution', listener_port=6789)
+
+        control.peers.add(hop1)
+        execution.peers.add(hop2)
+        hop1.peers.add(hop2)
+
+        """
+        InstanceLink
+        source     | target
+        ---------------------
+        control    | hop1
+        hop1       | hop2
+        execution  | hop2
+        """
+
+        new_state = migrator.apply_tested_migration(('main', '0188_inbound_hop_nodes'))
+
+        """
+        InstanceLinkReceptorAddress
+        source     | target
+        ------------------------------
+        control    | hop1
+        hop1       | hop2
+        execution  | hop2
+        """
+
+        """
+        ReceptorAddress
+        port     | peers_from_control_nodes
+        ------------------------------
+
+        """
+
+        Instance = new_state.apps.get_model('main', 'Instance')
+        ReceptorAddress = new_state.apps.get_model('main', 'ReceptorAddress')
+        InstanceLink = new_state.apps.get_model('main', 'InstanceLinkReceptorAddress')
+
+        # Edge cases in re-using models across migrations
+        # Best to just get the objects again
+        control = Instance.objects.get(id=control.id)
+        hop1 = Instance.objects.get(id=hop1.id)
+        hop2 = Instance.objects.get(id=hop2.id)
+        execution = Instance.objects.get(id=execution.id)
+
+        # Calling .get() is equivalent to assert .filter().exists() for our purpose.
+        hop1_r = ReceptorAddress.objects.get(port=6787, peers_from_control_nodes=True, instance_id=hop1.id)
+        hop2_r = ReceptorAddress.objects.get(port=6788, peers_from_control_nodes=False, instance_id=hop2.id)
+        execution_r = ReceptorAddress.objects.get(port=6789, peers_from_control_nodes=False, instance_id=execution.id)
+        assert ReceptorAddress.objects.all().count() == 3
+
+        InstanceLink.objects.get(source=execution, target=hop2_r)
+        InstanceLink.objects.get(source=hop1, target=hop2_r)
+        InstanceLink.objects.get(source=control, target=hop1_r)
+        assert InstanceLink.objects.all().count() == 3
+
+        """
+        InstanceLink
+        ------------------------------
+        source     | target
+
+        ReceptorAddress
+        ------------------------------
+        port     | peers_from_control_nodes
+        
+        """
