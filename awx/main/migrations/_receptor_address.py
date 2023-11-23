@@ -1,5 +1,4 @@
 import logging
-from django.db import DatabaseError, transaction
 
 
 logger = logging.getLogger('awx.main.migrations')
@@ -39,10 +38,8 @@ def migrate_instance_relationship_to_receptor_relationships(apps, schema_editor)
         ]
     )
 
-    # addr_map = {addr.instance.id: addr for addr in addrs}
     # TODO: cmeyers, should we also rewrite the receptor config(s) after the migration ???
     # _emulate_receptor_address_save_signal(raddr, Instance)
 
     for link in InstanceLink.objects.all():
-        # link.source.peers.add(addr_map[link.target.id])
         link.source.peers.add(ReceptorAddress.objects.get(instance=link.target))
